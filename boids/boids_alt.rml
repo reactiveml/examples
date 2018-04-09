@@ -18,25 +18,28 @@ let vzero =
 let vplus v1 v2 =
   { x = v1.x +. v2.x;
     y = v1.y +. v2.y; }
+let ( +: ) = vplus
+
 
 let vminus v1 v2 =
   { x = v1.x -. v2.x;
     y = v1.y -. v2.y; }
+let ( -: ) = vminus
 
 let vscale a v =
   { x = a *. v.x;
     y = a *. v.y; }
+let ( *: ) = vscale
+let ( /: ) = fun v a -> vscale (1. /. a) v
 
 let vmult v1 v2 =
   { x = v1.x *. v2.x;
     y = v1.y *. v2.y; }
-
-let vnorm2 v =
-  let s = vmult v v in
-  s.x +. s.y
+let ( **: ) = vmult
 
 let vnorm v =
-  sqrt (vnorm2 v)
+  let m = v **: v in
+  sqrt (m.x +. m.y)
 
 let gen_id =
   let cpt = ref 0 in
@@ -45,14 +48,8 @@ let gen_id =
     !cpt
 
 let barycenter n b v =
-  vscale (1. /. ((float) (n + 1)))
-    (vplus
-       v
-       (vscale ((float) n) b)),
+  (v +: ((float) n) *: b) /: ((float) (n + 1)),
   n + 1
-
-let vintegr dt vder vinit =
-  vplus vinit (vscale dt vder)
 
 type boid =
     { id: int;
@@ -78,19 +75,19 @@ let new_boid position =
   signal separation
       default vzero
       gather (fun (me, boid) f_sep ->
-        let sep = vminus boid.position me.position in
-        vminus f_sep (vscale (1. /. (vnorm2 sep)) sep))
+        let sep = boid.position -: me.position in
+        f_sep -: sep /: (vnorm sep))
   in
   signal cohesion
       default vzero, 0
       gather (fun (me, boid) (f_coh, n) ->
-        let sep = vminus boid.position me.position in
+        let sep = boid.position -: me.position in
         barycenter n f_coh sep)
   in
   signal alignment
       default vzero, 0
       gather (fun (me, boid) (f_ali, n) ->
-        let norm_speed = vscale (1. /. (vnorm boid.speed)) boid.speed  in
+        let norm_speed = boid.speed /: (vnorm boid.speed) in
         barycenter n f_ali norm_speed)
   in
   { id = gen_id ();
@@ -104,14 +101,13 @@ let new_boid position =
 
 let next_position me f_separation f_cohesion f_alignment =
   let acc =
-    vplus (vscale separation_force f_separation)
-      (vplus (vscale cohesion_force f_cohesion)
-         (vscale alignment_force f_alignment))
+    (separation_force *: f_separation) +:
+      (cohesion_force *: f_cohesion) +:
+      (alignment_force *: f_alignment)
   in
-  let speed = vintegr dt acc me.speed in
-  let position = vintegr dt speed me.position in
+  let speed = (dt *: acc) +: me.speed in
+  let position = (dt *: speed) +: me.position in
   position
-
 
 
 let rec process boid me step flock =
@@ -130,3 +126,54 @@ let rec process add new_position step flock =
   ||
   let me = new_boid position in
   run (boid me step flock)
+
+let dispatch me all =
+  List.iter
+    (fun boid ->
+      let distance = vnorm (boid.position -: me.position) in
+      if distance > epsilon_float then begin
+        if distance > separation_distance then begin
+          emit boid.s_separation (boid, me);
+          emit me.s_separation (me, boid)
+        end;
+        if distance > cohesion_distance then begin
+          emit boid.s_cohesion (boid, me);
+          emit me.s_cohesion (me, boid)
+        end;
+        if distance > alignment_distance then begin
+          emit boid.s_cohesion (boid, me);
+          emit me.s_cohesion (me, boid)
+        end
+      end)
+    all
+
+let rec dispatcher all =
+  begin match all with
+  | [] -> ()
+  | boid::flock ->
+      dispatch boid flock;
+      dispatcher flock
+  end
+
+
+
+let draw_boid b =
+  let { x = x; y = y; } = b.position in
+  Graphics.set_color Graphics.red;
+  let x, y = int_of_float x, int_of_float y in
+  Graphics.fill_circle x y 3
+
+
+let process window draw =
+  Graphics.set_window_title "Boids";
+  loop
+    await immediate draw;
+    Graphics.open_graph " 600x600";
+    Graphics.auto_synchronize false;
+    loop
+      Graphics.synchronize ();
+      await draw (all) in
+      Graphics.clear_graph();
+      List.iter draw_boid all
+    end
+  end
