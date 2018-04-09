@@ -1,0 +1,132 @@
+(***************************************************************)
+(*                        ReactiveML                           *)
+(*                                                             *)
+(*                                                             *)
+(*  Authors: Guillaume Baudart (guillaume.baudart@ibm.com)     *)
+(*           Louis Mandel (louis.mandel@lri.fr)                *)
+(*                                                             *)
+(***************************************************************)
+
+type vect =
+    { x: float;
+      y: float; }
+
+let vzero =
+  { x = 0.;
+    y = 0.; }
+
+let vplus v1 v2 =
+  { x = v1.x +. v2.x;
+    y = v1.y +. v2.y; }
+
+let vminus v1 v2 =
+  { x = v1.x -. v2.x;
+    y = v1.y -. v2.y; }
+
+let vscale a v =
+  { x = a *. v.x;
+    y = a *. v.y; }
+
+let vmult v1 v2 =
+  { x = v1.x *. v2.x;
+    y = v1.y *. v2.y; }
+
+let vnorm2 v =
+  let s = vmult v v in
+  s.x +. s.y
+
+let vnorm v =
+  sqrt (vnorm2 v)
+
+let gen_id =
+  let cpt = ref 0 in
+  fun () ->
+    incr cpt;
+    !cpt
+
+let barycenter n b v =
+  vscale (1. /. ((float) (n + 1)))
+    (vplus
+       v
+       (vscale ((float) n) b)),
+  n + 1
+
+let vintegr dt vder vinit =
+  vplus vinit (vscale dt vder)
+
+type boid =
+    { id: int;
+      position: vect;
+      speed: vect;
+      acceleration: vect;
+      s_separation: ((boid * boid), vect) event;
+      s_cohesion: ((boid * boid), (vect * int)) event;
+      s_alignment: ((boid * boid), (vect * int)) event;}
+
+let boids_number = 50
+let speed_limit = 0.
+let acceleration_limit = 1.
+let separation_distance = 60.
+let alignment_distance = 180.
+let cohesion_distance = 180.
+let separation_force = 0.15
+let alignment_force = 0.25
+let cohesion_force = 0.1
+let dt = 0.1
+
+let new_boid position =
+  signal separation
+      default vzero
+      gather (fun (me, boid) f_sep ->
+        let sep = vminus boid.position me.position in
+        vminus f_sep (vscale (1. /. (vnorm2 sep)) sep))
+  in
+  signal cohesion
+      default vzero, 0
+      gather (fun (me, boid) (f_coh, n) ->
+        let sep = vminus boid.position me.position in
+        barycenter n f_coh sep)
+  in
+  signal alignment
+      default vzero, 0
+      gather (fun (me, boid) (f_ali, n) ->
+        let norm_speed = vscale (1. /. (vnorm boid.speed)) boid.speed  in
+        barycenter n f_ali norm_speed)
+  in
+  { id = gen_id ();
+    position = position;
+    speed = vzero;
+    acceleration = vzero;
+    s_separation = separation;
+    s_cohesion = cohesion;
+    s_alignment = alignment; }
+
+
+let next_position me f_separation f_cohesion f_alignment =
+  let acc =
+    vplus (vscale separation_force f_separation)
+      (vplus (vscale cohesion_force f_cohesion)
+         (vscale alignment_force f_alignment))
+  in
+  let speed = vintegr dt acc me.speed in
+  let position = vintegr dt speed me.position in
+  position
+
+
+
+let rec process boid me step flock =
+  await immediate step;
+  emit flock me;
+  await me.s_separation(f_separation) /\
+      me.s_cohesion(f_cohesion, _) /\
+      me.s_alignment(f_alignment, _) in
+  let position = next_position me f_separation f_cohesion f_alignment in
+  run boid { me with position = position } step flock
+
+
+let rec process add new_position step flock =
+  await new_position (position) in
+  run (add new_position step flock)
+  ||
+  let me = new_boid position in
+  run (boid me step flock)
