@@ -37,9 +37,16 @@ let vmult v1 v2 =
     y = v1.y *. v2.y; }
 let ( **: ) = vmult
 
-let vnorm v =
+let vnorm2 v =
   let m = v **: v in
-  sqrt (m.x +. m.y)
+  m.x +. m.y
+
+let vnormalize2 v =
+  if v = vzero then vzero
+  else v /: (vnorm2 v)
+
+let vnorm v =
+  sqrt (vnorm2 v)
 
 let vrandom xmax ymax =
   { x = Random.float xmax;
@@ -58,6 +65,11 @@ let barycenter n b v =
   (v +: ((float) n) *: b) /: ((float) (n + 1)),
   n + 1
 
+let damping limit v =
+  let n = vnorm v in
+  if n > limit then (limit /. n) *: v
+  else v
+
 type boid =
     { id: int;
       position: vect;
@@ -68,15 +80,15 @@ type boid =
       s_alignment: ((boid * boid), (vect * int)) event;}
 
 let boids_number = 50
-let speed_limit = 0.
-let acceleration_limit = 1.
+let speed_limit = 2.
+let acceleration_limit = 0.5
 let separation_distance = 60.
 let alignment_distance = 180.
 let cohesion_distance = 180.
-let separation_force = 0.00000015
-let alignment_force = 0.00000025
-let cohesion_force = 0.0000001
-let dt = 0.1
+let separation_force = 0.15
+let cohesion_force = 0.1
+let alignment_force = 0.25
+let dt = 1.
 let bounds = (0., 600., 0., 600.)
 
 let in_bounds (min_x, max_x, min_y, max_y) boid =
@@ -102,25 +114,30 @@ let new_boid position =
       default vzero
       gather (fun (me, boid) f_sep ->
         let sep = boid.position -: me.position in
-        let distance = vnorm sep in
-        if distance > epsilon_float then
-          f_sep -: sep /: distance
-        else f_sep)
+        f_sep -: sep
+        (* let distance = vnorm sep in *)
+        (* if distance > epsilon_float then *)
+        (*   f_sep -: sep *)
+        (* else f_sep *))
   in
   signal cohesion
       default vzero, 0
       gather (fun (me, boid) (f_coh, n) ->
         let sep = boid.position -: me.position in
-        barycenter n f_coh sep)
+        f_coh +: sep, n
+        (* barycenter n f_coh sep) *)
+        (* if distance > epsilon_float then *)
+        (*   f_coh +: sep, n *)
+        (* else f_coh, n *))
   in
   signal alignment
       default vzero, 0
       gather (fun (me, boid) (f_ali, n) ->
-        let nspeed = vnorm boid.speed in
-        if nspeed > epsilon_float then
-           let norm_speed = boid.speed /: nspeed in
-           barycenter n f_ali norm_speed
-        else f_ali, n)
+        f_ali +: boid.speed, n
+        (* let nspeed = vnorm boid.speed in *)
+        (* if nspeed > epsilon_float then *)
+        (*    barycenter n f_ali boid.speed *)
+        (* else f_ali, n *))
   in
   { id = gen_id ();
     position = position;
@@ -132,13 +149,16 @@ let new_boid position =
 
 
 
+
 let next_position me f_separation f_cohesion f_alignment =
   let acceleration =
-    (separation_force *: f_separation) +:
-      (cohesion_force *: f_cohesion) +:
-      (alignment_force *: f_alignment)
+    (separation_force *: (vnormalize2 f_separation)) +:
+      (cohesion_force *: (vnormalize2 f_cohesion)) +:
+      (alignment_force *: (vnormalize2 f_alignment))
   in
+  let acceleration = damping acceleration_limit acceleration in
   let speed = (dt *: acceleration) +: me.speed in
+  let speed = damping speed_limit speed in
   let position = (dt *: speed) +: me.position in
   check_bounds
     bounds
@@ -147,11 +167,10 @@ let next_position me f_separation f_cohesion f_alignment =
       speed = speed;
       acceleration = acceleration; }
 
-
 let rec process boid me step flock =
   (* await step; *)
   emit flock me;
-  pause;
+  pause; pause;
   let f_separation = pre ?me.s_separation in
   let f_cohesion, _ = pre ?me.s_cohesion in
   let f_alignment, _ = pre ?me.s_alignment in
@@ -173,16 +192,16 @@ let rec process add new_position step flock =
 let dispatch me all =
   List.iter
     (fun boid ->
-      let distance = vnorm (boid.position -: me.position) in
-      if true or distance < separation_distance then begin
+      let distance = vnorm2 (boid.position -: me.position) in
+      if distance < separation_distance ** 2. then begin
         emit boid.s_separation (boid, me);
         emit me.s_separation (me, boid)
       end;
-      if true or distance < cohesion_distance then begin
+      if distance < cohesion_distance ** 2. then begin
         emit boid.s_cohesion (boid, me);
         emit me.s_cohesion (me, boid)
       end;
-      if true or distance < alignment_distance then begin
+      if distance < alignment_distance ** 2. then begin
         emit boid.s_cohesion (boid, me);
         emit me.s_cohesion (me, boid)
       end)
@@ -215,12 +234,17 @@ let process window draw =
     Graphics.clear_graph();
     List.iter draw_boid all
   end
+  ||
+  loop
+    let _ = Graphics.wait_next_event [Graphics.Poll] in
+    pause
+  end
 
 
 signal step, flock;;
 let process main =
   run window flock ||
-  loop emit step; pause end ||
+  loop emit step; pause; pause end ||
   for i=1 to boids_number dopar
     run boid (new_boid (vrandom 600. 600.)) step flock
   done ||
