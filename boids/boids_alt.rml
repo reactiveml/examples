@@ -15,6 +15,10 @@ let vzero =
   { x = 0.;
     y = 0.; }
 
+let vone =
+  { x = 1.;
+    y = 1.; }
+
 let vplus v1 v2 =
   { x = v1.x +. v2.x;
     y = v1.y +. v2.y; }
@@ -83,11 +87,11 @@ let boids_number = 50
 let speed_limit = 2.
 let acceleration_limit = 0.5
 let separation_distance = 60.
-let alignment_distance = 180.
-let cohesion_distance = 180.
-let separation_force = 0.15
-let cohesion_force = 0.1
-let alignment_force = 0.25
+let alignment_distance = 500.
+let cohesion_distance = 250.
+let separation_force = 0.
+let cohesion_force = 1.
+let alignment_force = 1.
 let dt = 1.
 let bounds = (0., 600., 0., 600.)
 
@@ -114,34 +118,32 @@ let new_boid position =
       default vzero
       gather (fun (me, boid) f_sep ->
         let sep = boid.position -: me.position in
-        f_sep -: sep
-        (* let distance = vnorm sep in *)
-        (* if distance > epsilon_float then *)
-        (*   f_sep -: sep *)
-        (* else f_sep *))
+        f_sep -: sep)
   in
   signal cohesion
       default vzero, 0
       gather (fun (me, boid) (f_coh, n) ->
         let sep = boid.position -: me.position in
-        f_coh +: sep, n
-        (* barycenter n f_coh sep) *)
+        (* f_coh +: sep, n *)
+        barycenter n f_coh sep)
         (* if distance > epsilon_float then *)
         (*   f_coh +: sep, n *)
-        (* else f_coh, n *))
+        (* else f_coh, n) *)
   in
   signal alignment
       default vzero, 0
       gather (fun (me, boid) (f_ali, n) ->
-        f_ali +: boid.speed, n
+        (* f_ali +: boid.speed, n *)
         (* let nspeed = vnorm boid.speed in *)
         (* if nspeed > epsilon_float then *)
-        (*    barycenter n f_ali boid.speed *)
-        (* else f_ali, n *))
+        barycenter n f_ali boid.speed)
+        (* else f_ali, n) *)
   in
   { id = gen_id ();
     position = position;
-    speed = vzero;
+    speed = vrandom
+      ((Random.float speed_limit) *. cos (Random.float (2. *. 3.14)))
+      ((Random.float speed_limit) *. sin (Random.float (2. *. 3.14)));
     acceleration = vzero;
     s_separation = separation;
     s_cohesion = cohesion;
@@ -218,10 +220,20 @@ let rec dispatcher all =
 
 
 let draw_boid b =
-  let { x = x; y = y; } = b.position in
   Graphics.set_color Graphics.red;
-  let x, y = int_of_float x, int_of_float y in
-  Graphics.fill_circle x y 3
+  let pos = b.position in
+  let tail = b.position -: (10. *: b.speed) in
+  Graphics.fill_circle
+    (int_of_float pos.x)
+    (int_of_float pos.y)
+    2;
+  Graphics.draw_segments
+    [| int_of_float pos.x,
+       int_of_float pos.y,
+       int_of_float tail.x,
+       int_of_float tail.y|]
+  (* let x, y = int_of_float x, int_of_float y in *)
+  (* Graphics.fill_circle x y 3 *)
 
 
 let process window draw =
