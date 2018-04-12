@@ -76,8 +76,8 @@ let gen_id =
     !cpt
 
 let barycenter n b v =
-  (v +: ((float) n) *: b) /: ((float) (n + 1)),
-  n + 1
+  let b = (v +: ((float) n) *: b) /: ((float) (n + 1)) in
+  b, n + 1
 
 let damping limit v =
   let n = vnorm v in
@@ -96,13 +96,13 @@ type boid =
 let boids_number = 50
 let speed_limit = 2.
 let acceleration_limit = 0.5
-let vision_angle = -0.9
-let separation_distance = 60.
-let alignment_distance = 100.
-let cohesion_distance = 250.
-let separation_force = 1.
-let cohesion_force = 1.
-let alignment_force = 1.
+let vision_angle = -1.0
+let separation_distance = 10.
+let alignment_distance = 50.
+let cohesion_distance = 100.
+let separation_force = 10.0
+let cohesion_force = 1.0
+let alignment_force = 0.1
 let dt = 1.
 let bounds = (0., 600., 0., 600.)
 
@@ -144,14 +144,10 @@ let new_boid position =
       default vzero, 0
       gather (fun (me, boid) (f_coh, n) ->
         let sep = boid.position -: me.position in
-        (* f_coh +: sep, n *)
         barycenter n f_coh sep)
-        (* if distance > epsilon_float then *)
-        (*   f_coh +: sep, n *)
-        (* else f_coh, n) *)
   in
   signal alignment
-      default vzero, 0
+      default vzero, 1
       gather (fun (me, boid) (f_ali, n) ->
         (* f_ali +: boid.speed, n *)
         (* let nspeed = vnorm boid.speed in *)
@@ -194,10 +190,6 @@ let rec process boid me step flock =
   let f_separation = pre ?me.s_separation in
   let f_cohesion, _ = pre ?me.s_cohesion in
   let f_alignment, _ = pre ?me.s_alignment in
-  (* await me.s_separation(f_separation) /\ *)
-  (*     me.s_cohesion(f_cohesion, _) /\ *)
-  (*     me.s_alignment(f_alignment, _) in *)
-  (* print_endline "Boid"; *)
   let next_me = next_position me f_separation f_cohesion f_alignment in
   run boid next_me step flock
 
@@ -213,7 +205,7 @@ let dispatch me all =
   List.iter
     (fun boid ->
       let distance = vnorm2 (boid.position -: me.position) in
-      if boid_angle me boid > vision_angle then begin
+      if (boid_angle me boid > vision_angle) then begin
         if distance < separation_distance ** 2. then begin
           emit boid.s_separation (boid, me);
           emit me.s_separation (me, boid)
@@ -223,8 +215,8 @@ let dispatch me all =
           emit me.s_cohesion (me, boid)
         end;
         if distance < alignment_distance ** 2. then begin
-          emit boid.s_cohesion (boid, me);
-          emit me.s_cohesion (me, boid)
+          emit boid.s_alignment (boid, me);
+          emit me.s_alignment (me, boid)
         end
       end)
     all
@@ -252,8 +244,6 @@ let draw_boid b =
        int_of_float pos.y,
        int_of_float tail.x,
        int_of_float tail.y|]
-  (* let x, y = int_of_float x, int_of_float y in *)
-  (* Graphics.fill_circle x y 3 *)
 
 
 let process window draw =
@@ -289,13 +279,3 @@ let process main =
   end
 
 let () = run main
-(* ;; *)
-(* #suspend;; *)
-(* #run main;; *)
-(* #step ;; *)
-(* pre ?flock;; *)
-(* #step ;; *)
-(* pre ?flock;; *)
-(* #step ;; *)
-(* pre ?flock;; *)
-(* 1;; *)
