@@ -7,6 +7,8 @@
 (*                                                             *)
 (***************************************************************)
 
+(** Vector lib **)
+
 type vect =
     { x: float;
       y: float; }
@@ -52,6 +54,10 @@ let vnormalize2 v =
 let vnorm v =
   sqrt (vnorm2 v)
 
+let vnormalize v =
+  if v = vzero then vzero
+  else v /: (vnorm2 v)
+
 let vcos v1 v2 =
   let n1 = sqrt (vnorm v1) in
   let n2 = sqrt (vnorm v2) in
@@ -66,8 +72,17 @@ let vrandom_sphere center radius =
   let a = Random.float (2. *. 3.14) in
   vrandom (n *. cos a) (n *. sin a)
 
+let vmouse () =
+  let x, y = Graphics.mouse_pos () in
+  { x = (float) x;
+    y = (float) y; }
+
 let vprint v =
-  print_endline ("("^(string_of_float v.x)^","^(string_of_float v.y)^")")
+  print_endline
+    ("("^(string_of_float v.x)^","^(string_of_float v.y)^")")
+
+
+(** Utils **)
 
 let gen_id =
   let cpt = ref 0 in
@@ -84,157 +99,39 @@ let damping limit v =
   if n > limit then (limit /. n) *: v
   else v
 
+
+(** Parameters **)
+
+let boids_number = 50
+let speed_limit = 2.
+let acceleration_limit = 0.5
+let vision_angle = -0.9
+let repulsion_distance = 50.
+let separation_distance = 10.
+let alignment_distance = 50.
+let cohesion_distance = 100.
+let repulsion_force = 100.
+let separation_force = 10.
+let cohesion_force = 1.
+let alignment_force = 0.1
+let dt = 1.
+let bounds = (0., 600., 0., 600.)
+
 type boid =
     { id: int;
       position: vect;
       speed: vect;
       acceleration: vect;
+      s_repulsion: ((boid * boid), vect) event;
       s_separation: ((boid * boid), vect) event;
       s_cohesion: ((boid * boid), (vect * int)) event;
       s_alignment: ((boid * boid), (vect * int)) event;}
 
-let boids_number = 50
-let speed_limit = 2.
-let acceleration_limit = 0.5
-let vision_angle = -1.0
-let separation_distance = 10.
-let alignment_distance = 50.
-let cohesion_distance = 100.
-let separation_force = 10.0
-let cohesion_force = 1.0
-let alignment_force = 0.1
-let dt = 1.
-let bounds = (0., 600., 0., 600.)
 
-let boid_angle b1 b2 =
-  let v1 = b1.speed in
-  let v2 =
-    { x = b2.position.x -. b1.position.x;
-      y = b2.position.y -. b1.position.y; }
-  in
-  vcos v1 v2
-
-
-let in_bounds (min_x, max_x, min_y, max_y) boid =
-  min_x <= boid.position.x && boid.position.x <= max_x &&
-  min_y <= boid.position.y && boid.position.y <= max_y
-
-let check_bounds (min_x, max_x, min_y, max_y) boid =
-  let pos_x, v_x =
-    if boid.position.x < min_x then (min_x, abs_float boid.speed.x)
-    else if boid.position.x > max_x then (max_x, -. (abs_float boid.speed.x))
-    else (boid.position.x, boid.speed.x)
-  in
-  let pos_y, v_y =
-    if boid.position.y < min_y then (min_y, abs_float boid.speed.y)
-    else if boid.position.y > max_y then (max_y, -.(abs_float boid.speed.y))
-    else (boid.position.y, boid.speed.y)
-  in
-  { boid with position = { x = pos_x ; y = pos_y; };
-              speed = { x = v_x; y = v_y; }; }
-
-let new_boid position =
-  signal separation
-      default vzero
-      gather (fun (me, boid) f_sep ->
-        let sep = boid.position -: me.position in
-        f_sep -: sep)
-  in
-  signal cohesion
-      default vzero, 0
-      gather (fun (me, boid) (f_coh, n) ->
-        let sep = boid.position -: me.position in
-        barycenter n f_coh sep)
-  in
-  signal alignment
-      default vzero, 1
-      gather (fun (me, boid) (f_ali, n) ->
-        (* f_ali +: boid.speed, n *)
-        (* let nspeed = vnorm boid.speed in *)
-        (* if nspeed > epsilon_float then *)
-        barycenter n f_ali boid.speed)
-        (* else f_ali, n) *)
-  in
-  { id = gen_id ();
-    position = position;
-    speed = vrandom_sphere vzero speed_limit;
-    acceleration = vzero;
-    s_separation = separation;
-    s_cohesion = cohesion;
-    s_alignment = alignment; }
-
-
-
-
-let next_position me f_separation f_cohesion f_alignment =
-  let acceleration =
-    (separation_force *: (vnormalize2 f_separation)) +:
-      (cohesion_force *: (vnormalize2 f_cohesion)) +:
-      (alignment_force *: (vnormalize2 f_alignment))
-  in
-  let acceleration = damping acceleration_limit acceleration in
-  let speed = (dt *: acceleration) +: me.speed in
-  let speed = damping speed_limit speed in
-  let position = (dt *: speed) +: me.position in
-  check_bounds
-    bounds
-    { me with
-      position = position;
-      speed = speed;
-      acceleration = acceleration; }
-
-let rec process boid me step flock =
-  (* await step; *)
-  emit flock me;
-  pause; pause;
-  let f_separation = pre ?me.s_separation in
-  let f_cohesion, _ = pre ?me.s_cohesion in
-  let f_alignment, _ = pre ?me.s_alignment in
-  let next_me = next_position me f_separation f_cohesion f_alignment in
-  run boid next_me step flock
-
-
-let rec process add new_position step flock =
-  await new_position (position) in
-  run (add new_position step flock)
-  ||
-  let me = new_boid position in
-  run (boid me step flock)
-
-let dispatch me all =
-  List.iter
-    (fun boid ->
-      let distance = vnorm2 (boid.position -: me.position) in
-      if (boid_angle me boid > vision_angle) then begin
-        if distance < separation_distance ** 2. then begin
-          emit boid.s_separation (boid, me);
-          emit me.s_separation (me, boid)
-        end;
-        if distance < cohesion_distance ** 2. then begin
-          emit boid.s_cohesion (boid, me);
-          emit me.s_cohesion (me, boid)
-        end;
-        if distance < alignment_distance ** 2. then begin
-          emit boid.s_alignment (boid, me);
-          emit me.s_alignment (me, boid)
-        end
-      end)
-    all
-
-let rec dispatcher all =
-  begin match all with
-  | [] -> ()
-  | boid::flock ->
-      dispatch boid flock;
-      dispatcher flock
-  end
-
-
-
-let draw_boid b =
+let draw_boid boid =
   Graphics.set_color Graphics.red;
-  let pos = b.position in
-  let tail = b.position -: (10. *: b.speed) in
+  let pos = boid.position in
+  let tail = boid.position -: (10. *: boid.speed) in
   Graphics.fill_circle
     (int_of_float pos.x)
     (int_of_float pos.y)
@@ -262,20 +159,148 @@ let process window draw =
     pause
   end
 
+let in_bounds (min_x, max_x, min_y, max_y) boid =
+  min_x <= boid.position.x && boid.position.x <= max_x &&
+  min_y <= boid.position.y && boid.position.y <= max_y
 
-signal step, flock;;
+let check_bounds (min_x, max_x, min_y, max_y) boid =
+  let pos_x, v_x =
+    if boid.position.x < min_x then (min_x, abs_float boid.speed.x)
+    else if boid.position.x > max_x then (max_x, -. (abs_float boid.speed.x))
+    else (boid.position.x, boid.speed.x)
+  in
+  let pos_y, v_y =
+    if boid.position.y < min_y then (min_y, abs_float boid.speed.y)
+    else if boid.position.y > max_y then (max_y, -.(abs_float boid.speed.y))
+    else (boid.position.y, boid.speed.y)
+  in
+  { boid with
+    position = { x = pos_x ; y = pos_y; };
+    speed = { x = v_x; y = v_y; }; }
+
+let in_sight angle me boid =
+  (me.id = boid.id) or
+  let dir = me.speed in
+  dir = vzero or
+  let sep = boid.position -: me.position in
+  (vcos dir sep) > angle
+
+let new_boid position =
+  signal repulsion
+      default vzero
+       gather (fun (me, predator) f_rep ->
+        let sep = predator.position -: me.position in
+        f_rep -: sep /: (vnorm2 sep)) in
+  signal separation
+      default vzero
+      gather (fun (me, boid) f_sep ->
+        let sep = boid.position -: me.position in
+        f_sep -: sep)
+  in
+  signal cohesion
+      default vzero, 0
+      gather (fun (me, boid) (f_coh, n) ->
+        let sep = boid.position -: me.position in
+        barycenter n f_coh sep)
+  in
+  signal alignment
+      default vzero, 1
+      gather (fun (me, boid) (f_ali, n) ->
+        barycenter n f_ali boid.speed)
+  in
+  { id = gen_id ();
+    position = position;
+    speed = vrandom_sphere vzero speed_limit;
+    acceleration = vzero;
+    s_repulsion = repulsion;
+    s_separation = separation;
+    s_cohesion = cohesion;
+    s_alignment = alignment; }
+
+
+let next_position me f_repulsion f_separation f_cohesion f_alignment =
+  let acceleration =
+    (repulsion_force *: f_repulsion) +:
+      (separation_force *: (vnormalize f_separation)) +:
+      (cohesion_force *: (vnormalize f_cohesion)) +:
+      (alignment_force *: (vnormalize f_alignment))
+  in
+  let acceleration = damping acceleration_limit acceleration in
+  let speed = (dt *: acceleration) +: me.speed in
+  let speed = damping speed_limit speed in
+  let position = (dt *: speed) +: me.position in
+  check_bounds
+    bounds
+    { me with
+      position = position;
+      speed = speed;
+      acceleration = acceleration; }
+
+let rec process boid me flock =
+  emit flock me;
+  let f_repulsion = pre ?me.s_repulsion in
+  await me.s_separation(f_separation) /\
+      me.s_cohesion(f_cohesion, _) /\
+      me.s_alignment(f_alignment, _) in
+  let next_me = next_position me f_repulsion f_separation f_cohesion f_alignment in
+  run boid next_me flock
+
+
+let rec process add new_position flock =
+  await new_position (position) in
+  run (add new_position flock) ||
+  let me = new_boid position in
+  run (boid me flock)
+
+let dispatch me all =
+  List.iter
+    (fun boid ->
+      let distance = vnorm2 (boid.position -: me.position) in
+      if (in_sight vision_angle me boid) then begin
+        if (boid.id = -1) && (distance < repulsion_distance ** 2.) then begin
+          emit me.s_repulsion (me, boid)
+        end;
+        if distance < separation_distance ** 2. then begin
+          emit boid.s_separation (boid, me);
+          emit me.s_separation (me, boid)
+        end;
+        if distance < cohesion_distance ** 2. then begin
+          emit boid.s_cohesion (boid, me);
+          emit me.s_cohesion (me, boid)
+        end;
+        if distance < alignment_distance ** 2. then begin
+          emit boid.s_alignment (boid, me);
+          emit me.s_alignment (me, boid)
+        end
+      end)
+    all
+
+let dispatcher all =
+  List.iter
+    (fun boid -> dispatch boid all)
+    all
+
+
+let process predator flock =
+  loop
+    let me = { (new_boid (vmouse ())) with id = -1 } in
+    emit flock me;
+    pause; pause;
+  end
+
+
+
+
 let process main =
+  signal flock in
   run window flock ||
-  loop emit step; pause; pause end ||
   for i=1 to boids_number dopar
-    run boid (new_boid (vrandom 600. 600.)) step flock
+    run boid (new_boid (vrandom 600. 600.)) flock
   done ||
   loop
     await flock (all) in
     dispatcher all
   end ||
-  loop
-    pause;
-  end
+  run predator flock
 
 let () = run main
