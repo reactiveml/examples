@@ -61,6 +61,11 @@ let vrandom xmax ymax =
   { x = Random.float xmax;
     y = Random.float ymax; }
 
+let vrandom_sphere center radius =
+  let n = Random.float radius in
+  let a = Random.float (2. *. 3.14) in
+  vrandom (n *. cos a) (n *. sin a)
+
 let vprint v =
   print_endline ("("^(string_of_float v.x)^","^(string_of_float v.y)^")")
 
@@ -93,7 +98,7 @@ let speed_limit = 2.
 let acceleration_limit = 0.5
 let vision_angle = -0.9
 let separation_distance = 60.
-let alignment_distance = 500.
+let alignment_distance = 100.
 let cohesion_distance = 250.
 let separation_force = 1.
 let cohesion_force = 1.
@@ -156,9 +161,7 @@ let new_boid position =
   in
   { id = gen_id ();
     position = position;
-    speed = vrandom
-      ((Random.float speed_limit) *. cos (Random.float (2. *. 3.14)))
-      ((Random.float speed_limit) *. sin (Random.float (2. *. 3.14)));
+    speed = vrandom_sphere vzero speed_limit;
     acceleration = vzero;
     s_separation = separation;
     s_cohesion = cohesion;
