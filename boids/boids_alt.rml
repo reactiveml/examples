@@ -96,6 +96,7 @@ let damping limit v =
 (** Parameters **)
 
 let boids_number = 50
+let family_number = 3
 let speed_limit = 2.
 let acceleration_limit = 0.5
 let vision_angle = -0.9
@@ -112,6 +113,7 @@ let bounds = (0., 600., 0., 600.)
 
 type boid =
     { id: int;
+      family: int;
       position: vect;
       speed: vect;
       acceleration: vect;
@@ -122,7 +124,14 @@ type boid =
 
 
 let draw_boid boid =
-  Graphics.set_color Graphics.red;
+  begin match boid.family with
+  | -1 -> Graphics.set_color Graphics.white
+  | 0 -> Graphics.set_color Graphics.red
+  | 1 -> Graphics.set_color Graphics.blue
+  | 2 -> Graphics.set_color Graphics.green
+  | 3 -> Graphics.set_color Graphics.black
+  | _ -> assert false
+  end;
   let pos = boid.position in
   let tail = boid.position -: (10. *: boid.speed) in
   Graphics.fill_circle
@@ -136,7 +145,25 @@ let draw_boid boid =
        int_of_float tail.y|]
 
 
-let process window draw =
+let process read_inputs mouse_click key =
+  let click = ref false in
+  let pre_click = ref false in
+  loop
+    pause;
+    let _ = Graphics.wait_next_event [Graphics.Poll] in
+    if Graphics.key_pressed() then
+      begin match Graphics.read_key() with
+      | 'q' -> exit 0
+      | k -> emit key k
+      end;
+    begin
+      click := Graphics.button_down();
+      if !click && not !pre_click then emit mouse_click (vmouse ());
+      pre_click := !click;
+    end;
+  end
+
+let process window draw click key =
   Graphics.set_window_title "Boids";
   Graphics.open_graph " 600x600";
   Graphics.auto_synchronize false;
@@ -145,12 +172,14 @@ let process window draw =
     await draw (all) in
     Graphics.clear_graph();
     List.iter draw_boid all
-  end
-  ||
+  end ||
   loop
     let _ = Graphics.wait_next_event [Graphics.Poll] in
     pause
-  end
+  end ||
+  run (read_inputs click key)
+
+
 
 let in_bounds (min_x, max_x, min_y, max_y) boid =
   min_x <= boid.position.x && boid.position.x <= max_x &&
@@ -178,13 +207,18 @@ let in_sight angle me boid =
   let sep = boid.position -: me.position in
   (vcos dir sep) > angle
 
-let new_boid position =
+let is_predator me boid =
+  (boid.id = me.id) or (boid.family <> me.family)
+
+let new_boid family position =
   signal repulsion
       default vzero
        gather (fun (me, predator) f_rep ->
          let sep = predator.position -: me.position in
          let distance = vnorm sep in
-        f_rep -: sep /: (distance ** 2.)) in
+         if distance > epsilon_float then
+           f_rep -: sep /: (distance ** 2.)
+         else f_rep) in
   signal separation
       default vzero
       gather (fun (me, boid) f_sep ->
@@ -203,6 +237,7 @@ let new_boid position =
         barycenter n f_ali boid.speed)
   in
   { id = gen_id ();
+    family = family;
     position = position;
     speed = vrandom_sphere vzero speed_limit;
     acceleration = vzero;
@@ -232,39 +267,45 @@ let next_position me f_repulsion f_separation f_cohesion f_alignment =
 
 let rec process boid me flock =
   emit flock me;
-  let f_repulsion = pre ?me.s_repulsion in
-  await me.s_separation(f_separation) /\
+  await
+      me.s_repulsion(f_repulsion) /\
+      me.s_separation(f_separation) /\
       me.s_cohesion(f_cohesion, _) /\
       me.s_alignment(f_alignment, _) in
   let next_me = next_position me f_repulsion f_separation f_cohesion f_alignment in
   run boid next_me flock
 
 
-let rec process add new_position flock =
+let rec process add_boid new_position flock =
   await new_position (position) in
-  run (add new_position flock) ||
-  let me = new_boid position in
-  run (boid me flock)
+  run (add_boid new_position flock) ||
+  begin
+    await flock in
+    pause;
+    let me = new_boid (Random.int family_number) position in
+    run (boid me flock)
+  end
 
 let dispatch me all =
   List.iter
     (fun boid ->
       let distance = vnorm (boid.position -: me.position) in
       if (in_sight vision_angle me boid) then begin
-        if (boid.id = -1) && (distance < repulsion_distance) then begin
-          emit me.s_repulsion (me, boid)
-        end;
-        if distance < separation_distance then begin
-          emit boid.s_separation (boid, me);
-          emit me.s_separation (me, boid)
-        end;
-        if distance < cohesion_distance then begin
-          emit boid.s_cohesion (boid, me);
-          emit me.s_cohesion (me, boid)
-        end;
-        if distance < alignment_distance then begin
-          emit boid.s_alignment (boid, me);
-          emit me.s_alignment (me, boid)
+        if (is_predator me boid) && (distance < repulsion_distance) then
+          emit me.s_repulsion (me, boid);
+        if me.family = boid.family then begin
+          if distance < separation_distance then begin
+            emit boid.s_separation (boid, me);
+            emit me.s_separation (me, boid)
+          end;
+          if distance < cohesion_distance then begin
+            emit boid.s_cohesion (boid, me);
+            emit me.s_cohesion (me, boid)
+          end;
+          if distance < alignment_distance then begin
+            emit boid.s_alignment (boid, me);
+            emit me.s_alignment (me, boid)
+          end
         end
       end)
     all
@@ -277,24 +318,25 @@ let dispatcher all =
 
 let process predator flock =
   loop
-    let me = { (new_boid (vmouse ())) with id = -1 } in
+    let me = { (new_boid (-1) (vmouse ())) with speed = vzero } in
     emit flock me;
     pause; pause;
   end
 
 
-
-
 let process main =
   signal flock in
-  run window flock ||
+  signal click default vzero gather (fun x y -> x) in
+  signal key default 'X' gather (fun x y -> x) in
+  run window flock click key ||
   for i=1 to boids_number dopar
-    run boid (new_boid (vrandom 600. 600.)) flock
+    run boid (new_boid 0 (vrandom 600. 600.)) flock
   done ||
   loop
     await flock (all) in
     dispatcher all
   end ||
-  run predator flock
+  run predator flock ||
+  run add_boid click flock
 
 let () = run main
