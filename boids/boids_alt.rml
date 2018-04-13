@@ -123,7 +123,7 @@ type boid =
       s_alignment: ((boid * boid), (vect * int)) event;}
 
 
-let process draw_boid boid =
+let set_color boid =
   begin match boid.family with
   | -1 -> Graphics.set_color Graphics.white
   | 0 -> Graphics.set_color Graphics.red
@@ -131,13 +131,17 @@ let process draw_boid boid =
   | 2 -> Graphics.set_color Graphics.green
   | 3 -> Graphics.set_color Graphics.black
   | _ -> assert false
-  end;
+  end
+
+let process draw_boid boid =
   let pos = boid.position in
+  set_color boid;
   Graphics.fill_circle
     (int_of_float pos.x)
     (int_of_float pos.y)
     2;
   for i = 1 to 10 do
+    set_color boid;
     Graphics.fill_circle
       (int_of_float pos.x)
       (int_of_float pos.y)
@@ -297,8 +301,8 @@ let dispatch me all =
   List.iter
     (fun boid ->
       let distance = vnorm (boid.position -: me.position) in
-      if (in_sight vision_angle me boid) then begin
-        if ((boid.id = me.id) or (boid.family <> me.family)) &&
+      if in_sight vision_angle me boid then begin
+        if boid.id = me.id or boid.family <> me.family &&
           (distance < repulsion_distance) then
           emit me.s_repulsion (me, boid);
         if me.family = boid.family then begin
