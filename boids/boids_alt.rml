@@ -95,7 +95,7 @@ let damping limit v =
 
 (** Parameters **)
 
-let boids_number = 50
+let boids_number = 100
 let family_number = 3
 let speed_limit = 2.
 let acceleration_limit = 0.5
@@ -123,7 +123,7 @@ type boid =
       s_alignment: ((boid * boid), (vect * int)) event;}
 
 
-let draw_boid boid =
+let process draw_boid boid =
   begin match boid.family with
   | -1 -> Graphics.set_color Graphics.white
   | 0 -> Graphics.set_color Graphics.red
@@ -133,16 +133,17 @@ let draw_boid boid =
   | _ -> assert false
   end;
   let pos = boid.position in
-  let tail = boid.position -: (10. *: boid.speed) in
   Graphics.fill_circle
     (int_of_float pos.x)
     (int_of_float pos.y)
     2;
-  Graphics.draw_segments
-    [| int_of_float pos.x,
-       int_of_float pos.y,
-       int_of_float tail.x,
-       int_of_float tail.y|]
+  for i = 1 to 10 do
+    Graphics.fill_circle
+      (int_of_float pos.x)
+      (int_of_float pos.y)
+      1;
+    pause
+  done
 
 
 let process read_inputs mouse_click key =
@@ -163,19 +164,28 @@ let process read_inputs mouse_click key =
     end;
   end
 
+
+let spawn_server, spawn =
+  signal add default (process ()) gather (proc x y -> run x || run y) in
+  let rec process server =
+    await add(p) in
+    run p || run server
+  in
+  let spawn p =
+    emit add p
+  in
+  (server, spawn)
+
 let process window draw click key =
   Graphics.set_window_title "Boids";
   Graphics.open_graph " 600x600";
   Graphics.auto_synchronize false;
+  run spawn_server ||
   loop
     Graphics.synchronize ();
-    await draw (all) in
     Graphics.clear_graph();
-    List.iter draw_boid all
-  end ||
-  loop
-    let _ = Graphics.wait_next_event [Graphics.Poll] in
-    pause
+    await draw (all) in
+    List.iter (fun b -> spawn (draw_boid b)) all
   end ||
   run (read_inputs click key)
 
