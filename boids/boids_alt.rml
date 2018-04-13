@@ -95,19 +95,19 @@ let damping limit v =
 
 (** Parameters **)
 
-let boids_number = 100
+let boids_number = 50
 let family_number = 3
 let speed_limit = 2.
 let acceleration_limit = 0.5
 let vision_angle = -0.9
 let repulsion_distance = 50.
-let separation_distance = 20.
+let separation_distance = 10.
 let alignment_distance = 50.
 let cohesion_distance = 100.
 let repulsion_force = 1000.
-let separation_force = 5.0
+let separation_force = 100.0
 let cohesion_force = 0.1
-let alignment_force = 10.0
+let alignment_force = 2.0
 let dt = 1.
 let bounds = (0., 600., 0., 600.)
 
