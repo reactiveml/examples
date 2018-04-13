@@ -207,9 +207,6 @@ let in_sight angle me boid =
   let sep = boid.position -: me.position in
   (vcos dir sep) > angle
 
-let is_predator me boid =
-  (boid.id = me.id) or (boid.family <> me.family)
-
 let new_boid family position =
   signal repulsion
       default vzero
@@ -291,7 +288,8 @@ let dispatch me all =
     (fun boid ->
       let distance = vnorm (boid.position -: me.position) in
       if (in_sight vision_angle me boid) then begin
-        if (is_predator me boid) && (distance < repulsion_distance) then
+        if ((boid.id = me.id) or (boid.family <> me.family)) &&
+          (distance < repulsion_distance) then
           emit me.s_repulsion (me, boid);
         if me.family = boid.family then begin
           if distance < separation_distance then begin
