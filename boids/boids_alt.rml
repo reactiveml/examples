@@ -43,20 +43,13 @@ let vmult v1 v2 =
     y = v1.y *. v2.y; }
 let ( **: ) = vmult
 
-let vnorm2 v =
-  let m = v **: v in
-  m.x +. m.y
-
-let vnormalize2 v =
-  if v = vzero then vzero
-  else v /: (vnorm2 v)
-
 let vnorm v =
-  sqrt (vnorm2 v)
+  let m = v **: v in
+  sqrt (m.x +. m.y)
 
 let vnormalize v =
   if v = vzero then vzero
-  else v /: (vnorm2 v)
+  else v /: (vnorm v)
 
 let vcos v1 v2 =
   let n1 = sqrt (vnorm v1) in
@@ -107,13 +100,13 @@ let speed_limit = 2.
 let acceleration_limit = 0.5
 let vision_angle = -0.9
 let repulsion_distance = 50.
-let separation_distance = 10.
+let separation_distance = 20.
 let alignment_distance = 50.
 let cohesion_distance = 100.
-let repulsion_force = 100.
-let separation_force = 10.
-let cohesion_force = 1.
-let alignment_force = 0.1
+let repulsion_force = 1000.
+let separation_force = 5.0
+let cohesion_force = 0.1
+let alignment_force = 10.0
 let dt = 1.
 let bounds = (0., 600., 0., 600.)
 
@@ -189,8 +182,9 @@ let new_boid position =
   signal repulsion
       default vzero
        gather (fun (me, predator) f_rep ->
-        let sep = predator.position -: me.position in
-        f_rep -: sep /: (vnorm2 sep)) in
+         let sep = predator.position -: me.position in
+         let distance = vnorm sep in
+        f_rep -: sep /: (distance ** 2.)) in
   signal separation
       default vzero
       gather (fun (me, boid) f_sep ->
@@ -221,9 +215,9 @@ let new_boid position =
 let next_position me f_repulsion f_separation f_cohesion f_alignment =
   let acceleration =
     (repulsion_force *: f_repulsion) +:
-      (separation_force *: (vnormalize f_separation)) +:
-      (cohesion_force *: (vnormalize f_cohesion)) +:
-      (alignment_force *: (vnormalize f_alignment))
+      (separation_force *: f_separation) +:
+      (cohesion_force *: f_cohesion) +:
+      (alignment_force *: f_alignment)
   in
   let acceleration = damping acceleration_limit acceleration in
   let speed = (dt *: acceleration) +: me.speed in
@@ -255,20 +249,20 @@ let rec process add new_position flock =
 let dispatch me all =
   List.iter
     (fun boid ->
-      let distance = vnorm2 (boid.position -: me.position) in
+      let distance = vnorm (boid.position -: me.position) in
       if (in_sight vision_angle me boid) then begin
-        if (boid.id = -1) && (distance < repulsion_distance ** 2.) then begin
+        if (boid.id = -1) && (distance < repulsion_distance) then begin
           emit me.s_repulsion (me, boid)
         end;
-        if distance < separation_distance ** 2. then begin
+        if distance < separation_distance then begin
           emit boid.s_separation (boid, me);
           emit me.s_separation (me, boid)
         end;
-        if distance < cohesion_distance ** 2. then begin
+        if distance < cohesion_distance then begin
           emit boid.s_cohesion (boid, me);
           emit me.s_cohesion (me, boid)
         end;
-        if distance < alignment_distance ** 2. then begin
+        if distance < alignment_distance then begin
           emit boid.s_alignment (boid, me);
           emit me.s_alignment (me, boid)
         end
