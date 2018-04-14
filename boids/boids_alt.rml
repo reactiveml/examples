@@ -108,6 +108,7 @@ let repulsion_force = 1000.
 let separation_force = 100.0
 let cohesion_force = 0.1
 let alignment_force = 2.0
+let selfishness = 0.6
 let dt = 1.
 let bounds = (0., 600., 0., 600.)
 
@@ -259,13 +260,18 @@ let new_boid family position =
 
 
 let next_position me f_repulsion f_separation f_cohesion f_alignment =
-  let acceleration =
-    (repulsion_force *: f_repulsion) +:
+  let flock_acc =
       (separation_force *: f_separation) +:
       (cohesion_force *: f_cohesion) +:
       (alignment_force *: f_alignment)
   in
-  let acceleration = damping acceleration_limit acceleration in
+  let selfish_acc = vrandom_sphere vzero (vnorm flock_acc) in
+  let acceleration =
+    damping acceleration_limit
+      (repulsion_force *: f_repulsion +:
+         (1. -. selfishness) *: flock_acc +:
+         selfishness *: selfish_acc)
+  in
   let speed = (dt *: acceleration) +: me.speed in
   let speed = damping speed_limit speed in
   let position = (dt *: speed) +: me.position in
