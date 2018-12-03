@@ -1,5 +1,5 @@
 # File to compile
-FILE=boids_p2p
+FILE=boids_dispatcher
 
 # ReactiveML compiler
 RMLC=rmlc

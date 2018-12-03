@@ -95,7 +95,7 @@ let damping limit v =
 
 (** Parameters **)
 
-let boids_number = 50
+let boids_number = 500
 let family_number = 3
 let speed_limit = 2.
 let acceleration_limit = 0.5
@@ -108,9 +108,12 @@ let repulsion_force = 1000.
 let separation_force = 100.0
 let cohesion_force = 0.1
 let alignment_force = 2.0
-let selfishness = 0.6
+let selfishness = 0.0
 let dt = 1.
 let bounds = (0., 600., 0., 600.)
+let influence_distance =
+  2. *.
+    (max separation_distance (max alignment_distance cohesion_distance))
 
 type boid =
     { id: int;
@@ -121,7 +124,10 @@ type boid =
       s_repulsion: ((boid * boid), vect) event;
       s_separation: ((boid * boid), vect) event;
       s_cohesion: ((boid * boid), (vect * int)) event;
-      s_alignment: ((boid * boid), (vect * int)) event;}
+      s_alignment: ((boid * boid), (vect * int)) event;
+      neighbors: (boid * float) list;
+      aliens: boid list;
+    }
 
 
 let set_color boid =
@@ -256,7 +262,9 @@ let new_boid family position =
     s_repulsion = repulsion;
     s_separation = separation;
     s_cohesion = cohesion;
-    s_alignment = alignment; }
+    s_alignment = alignment;
+    neighbors = [];
+    aliens = []; }
 
 
 let next_position me f_repulsion f_separation f_cohesion f_alignment =
@@ -282,34 +290,29 @@ let next_position me f_repulsion f_separation f_cohesion f_alignment =
       speed = speed;
       acceleration = acceleration; }
 
-let rec process boid me flock =
-  emit flock me;
-  await
-      me.s_repulsion(f_repulsion) /\
-      me.s_separation(f_separation) /\
-      me.s_cohesion(f_cohesion, _) /\
-      me.s_alignment(f_alignment, _) in
-  let next_me = next_position me f_repulsion f_separation f_cohesion f_alignment in
-  run boid next_me flock
+let update_neighbors me =
+  let neighbors =
+    List.fold_left
+      (fun acc (boid, _) ->
+        let distance = vnorm (boid.position -: me.position) in
+        if distance < influence_distance then
+          (boid, distance) :: acc
+        else
+          acc)
+      [] me.neighbors
+  in
+  if me.id = 1 then begin
+    print_int (List.length neighbors);
+    print_newline ()
+  end;
+  { me with neighbors = neighbors }
 
-
-let rec process add_boid new_position flock =
-  await new_position (position) in
-  run (add_boid new_position flock) ||
-  begin
-    await flock in
-    pause;
-    let me = new_boid (Random.int family_number) position in
-    run (boid me flock)
-  end
-
-let dispatch me all =
+let dispatch me neighbors =
   List.iter
-    (fun boid ->
-      let distance = vnorm (boid.position -: me.position) in
+    (fun (boid, distance) ->
       if in_sight vision_angle me boid then begin
         if boid.id = me.id or boid.family <> me.family &&
-          (distance < repulsion_distance) then
+           distance < repulsion_distance then
           emit me.s_repulsion (me, boid);
         if me.family = boid.family then begin
           if distance < separation_distance then begin
@@ -326,12 +329,46 @@ let dispatch me all =
           end
         end
       end)
-    all
+    ((me, 0.) :: neighbors)
 
-let dispatcher all =
-  List.iter
-    (fun boid -> dispatch boid all)
-    all
+
+let rec process boid me flock =
+  let me = update_neighbors me in
+  emit flock me;
+  dispatch me me.neighbors;
+  await
+      me.s_repulsion(f_repulsion) /\
+      me.s_separation(f_separation) /\
+      me.s_cohesion(f_cohesion, _) /\
+      me.s_alignment(f_alignment, _) in
+  let next_me =
+    next_position me f_repulsion f_separation f_cohesion f_alignment
+  in
+  run boid next_me flock
+
+
+let process boid_with_init me flock =
+  emit flock me;
+  await flock (all) in
+  let neighbors =
+    List.map
+      (fun boid ->
+        let distance = vnorm (boid.position -: me.position) in
+        (boid, distance))
+      all
+  in
+  run (boid { me with neighbors = neighbors } flock)
+
+
+let rec process add_boid new_position flock =
+  await new_position (position) in
+  run (add_boid new_position flock) ||
+  begin
+    await flock in
+    pause;
+    let me = new_boid (Random.int family_number) position in
+    run boid_with_init me flock
+  end
 
 
 let process predator flock =
@@ -348,12 +385,8 @@ let process main =
   signal key default 'X' gather (fun x y -> x) in
   run window flock click key ||
   for i=1 to boids_number dopar
-    run boid (new_boid 0 (vrandom 600. 600.)) flock
+    run boid_with_init (new_boid 0 (vrandom 600. 600.)) flock
   done ||
-  loop
-    await flock (all) in
-    dispatcher all
-  end ||
   run predator flock ||
   run add_boid click flock
 
